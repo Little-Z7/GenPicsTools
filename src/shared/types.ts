@@ -13,6 +13,7 @@ export interface AppConfig {
   size: string;
   count: number;
   outputDirectory: string;
+  concurrency?: number;
 }
 
 export interface GenerationRequest {
@@ -20,6 +21,7 @@ export interface GenerationRequest {
   prompt: string;
   size: string;
   count: number;
+  referenceImages?: ReferenceImageRecord[];
 }
 
 export type NormalizedGeneratedImage =
@@ -62,4 +64,52 @@ export interface HistoryEntry {
   size: string;
   count: number;
   images: SavedImage[];
+}
+
+export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface ReferenceImageRecord {
+  id: string;
+  filePath: string;
+  fileUrl: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface TaskOutputRecord extends SavedImage {
+  id?: string;
+  createdAt?: string;
+}
+
+export interface CreateTaskInput {
+  provider: ProviderFormat;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  size: string;
+  count: number;
+  outputDirectory: string;
+  referenceImages: ReferenceImageRecord[];
+}
+
+export interface GenerationTask extends CreateTaskInput {
+  id: string;
+  status: TaskStatus;
+  error?: string;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  outputs: TaskOutputRecord[];
+}
+
+export interface QueueSettings {
+  provider: ProviderSettings;
+  size: string;
+  count: number;
+  outputDirectory: string;
+  concurrency: number;
 }

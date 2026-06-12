@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import type { GenerationRequest, NormalizedGeneratedImage, ProviderGenerationResult } from "../../shared/types";
-import type { FetchLike } from "./openai";
+import type { FetchLike, ReadFileLike } from "./openai";
 
 interface GeminiResponse {
   candidates?: Array<{
@@ -24,8 +25,10 @@ interface GeminiResponse {
 
 export async function generateGeminiImages(
   request: GenerationRequest,
-  fetchImpl: FetchLike = fetch
+  fetchImpl: FetchLike = fetch,
+  readFileImpl: ReadFileLike = readFile
 ): Promise<ProviderGenerationResult> {
+  const parts = await createGeminiParts(request, readFileImpl);
   const response = await fetchImpl(
     joinUrl(request.provider.baseUrl, `models/${encodeURIComponent(request.provider.model)}:generateContent`),
     {
@@ -35,9 +38,14 @@ export async function generateGeminiImages(
         "x-goog-api-key": request.provider.apiKey
       },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: request.prompt }] }],
+        contents: [{ parts }],
         generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"]
+          responseModalities: ["TEXT", "IMAGE"],
+          responseFormat: {
+            image: {
+              aspectRatio: request.size
+            }
+          }
         }
       })
     }
@@ -115,4 +123,20 @@ function extensionFromMimeType(mimeType: string): string {
   }
 
   return "png";
+}
+
+async function createGeminiParts(request: GenerationRequest, readFileImpl: ReadFileLike) {
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: request.prompt }];
+
+  for (const image of request.referenceImages ?? []) {
+    const bytes = await readFileImpl(image.filePath);
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: Buffer.from(bytes).toString("base64")
+      }
+    });
+  }
+
+  return parts;
 }

@@ -75,6 +75,68 @@ describe("provider adapters", () => {
     ]);
   });
 
+  it("accepts a full OpenAI-compatible endpoint and bearer-prefixed API key", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    await generateWithProvider(
+      createRequest({
+        provider: {
+          format: "openai",
+          baseUrl: "https://api.example.test/v1/images/generations",
+          apiKey: "Bearer already-prefixed",
+          model: "image-model"
+        }
+      }),
+      fetchImpl
+    );
+
+    expect(calls[0].input).toBe("https://api.example.test/v1/images/generations");
+    expect(new Headers(calls[0].init?.headers).get("authorization")).toBe("Bearer already-prefixed");
+  });
+
+  it("uses OpenAI-compatible image edits when reference images are provided", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    await generateWithProvider(
+      createRequest({
+        referenceImages: [
+          {
+            id: "ref",
+            filePath: "C:/tmp/ref.png",
+            fileUrl: "file:///C:/tmp/ref.png",
+            originalName: "ref.png",
+            mimeType: "image/png",
+            sizeBytes: 16
+          }
+        ]
+      }),
+      fetchImpl,
+      async () => Buffer.from("reference-bytes")
+    );
+
+    const form = calls[0].init?.body as FormData;
+    expect(calls[0].input).toBe("https://api.example.test/v1/images/edits");
+    expect(form.get("model")).toBe("image-model");
+    expect(form.get("prompt")).toBe("a crisp product render");
+    expect(form.get("size")).toBe("1024x1024");
+    expect(form.get("n")).toBe("1");
+    expect(form.get("image")).toBeInstanceOf(Blob);
+  });
+
   it("accepts a full OpenAI-compatible image endpoint and bearer-prefixed API key", async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
@@ -155,5 +217,54 @@ describe("provider adapters", () => {
         extension: "png"
       }
     ]);
+  });
+
+  it("sends Gemini reference images as inline data parts", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: pngBase64 } }] } }]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    };
+
+    await generateWithProvider(
+      createRequest({
+        provider: {
+          format: "gemini",
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+          apiKey: "gemini-key",
+          model: "gemini-2.5-flash-image"
+        },
+        size: "16:9",
+        referenceImages: [
+          {
+            id: "ref",
+            filePath: "C:/tmp/ref.webp",
+            fileUrl: "file:///C:/tmp/ref.webp",
+            originalName: "ref.webp",
+            mimeType: "image/webp",
+            sizeBytes: 16
+          }
+        ]
+      }),
+      fetchImpl,
+      async () => Buffer.from("reference-bytes")
+    );
+
+    const body = JSON.parse(String(calls[0].init?.body));
+    expect(body.contents[0].parts).toEqual([
+      { text: "a crisp product render" },
+      {
+        inlineData: {
+          mimeType: "image/webp",
+          data: Buffer.from("reference-bytes").toString("base64")
+        }
+      }
+    ]);
+    expect(body.generationConfig.responseFormat.image.aspectRatio).toBe("16:9");
   });
 });

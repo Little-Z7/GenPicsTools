@@ -1,16 +1,17 @@
 import type { GenerationRequest, ProviderGenerationResult } from "../../shared/types";
 import { generateGeminiImages } from "./gemini";
-import { generateOpenAIImages, type FetchLike } from "./openai";
+import { generateOpenAIImages, type FetchLike, type ReadFileLike } from "./openai";
 
 export async function generateWithProvider(
   request: GenerationRequest,
-  fetchImpl?: FetchLike
+  fetchImpl?: FetchLike,
+  readFileImpl?: ReadFileLike
 ): Promise<ProviderGenerationResult> {
   if (request.provider.format === "gemini") {
-    return generateGeminiImages(request, fetchImpl);
+    return generateGeminiImages(request, fetchImpl, readFileImpl);
   }
 
-  return generateOpenAIImages(request, fetchImpl);
+  return generateOpenAIImages(request, fetchImpl, readFileImpl);
 }
 
-export type { FetchLike };
+export type { FetchLike, ReadFileLike };
