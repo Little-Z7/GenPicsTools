@@ -15,6 +15,10 @@ export const openAiSizeOptions = [
 export const geminiSizeOptions = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"] as const;
 
 export function getSizeOptions(provider: ProviderFormat): readonly string[] {
+  if (provider === "workflow") {
+    return [];
+  }
+
   return provider === "gemini" ? geminiSizeOptions : openAiSizeOptions;
 }
 

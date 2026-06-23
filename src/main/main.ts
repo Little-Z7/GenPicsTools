@@ -169,6 +169,21 @@ function loadQueueSettingsSync(store: ReturnType<typeof createTaskStore>, userDa
 }
 
 function normalizeSettings(settings: QueueSettings, userDataPath: string): QueueSettings {
+  if (settings.provider.format === "workflow") {
+    return {
+      provider: {
+        format: "workflow",
+        baseUrl: "https://www.runninghub.cn/openapi/v2",
+        apiKey: settings.provider.apiKey || "",
+        model: "seethrough"
+      },
+      size: "workflow",
+      count: 1,
+      outputDirectory: settings.outputDirectory || join(userDataPath, "outputs"),
+      concurrency: clampInteger(settings.concurrency, 1, 6, 2)
+    };
+  }
+
   return {
     provider: {
       format: settings.provider.format,

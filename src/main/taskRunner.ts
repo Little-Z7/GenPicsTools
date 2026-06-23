@@ -1,4 +1,10 @@
-import type { GenerationTask, NormalizedGeneratedImage, ProviderGenerationResult, SavedImage } from "../shared/types";
+import type {
+  GenerationTask,
+  NormalizedGeneratedImage,
+  ProviderGenerationResult,
+  ProviderProgressStatus,
+  SavedImage
+} from "../shared/types";
 import { saveGeneratedImages } from "./imageFiles";
 import { generateWithProvider } from "./providers";
 import type { TaskStore } from "./taskStore";
@@ -12,7 +18,11 @@ export interface TaskRunner {
 
 interface TaskRunnerOptions {
   concurrency: number | (() => number);
-  generate?: (task: GenerationTask, signal: AbortSignal) => Promise<ProviderGenerationResult>;
+  generate?: (
+    task: GenerationTask,
+    signal: AbortSignal,
+    reportStatus?: (status: ProviderProgressStatus) => void
+  ) => Promise<ProviderGenerationResult>;
   saveImages?: (
     images: NormalizedGeneratedImage[],
     outputDirectory: string,
@@ -77,7 +87,18 @@ export function createTaskRunner(store: TaskStore, options: TaskRunnerOptions): 
     store.markRunning(task.id);
     notify(task.id);
     try {
-      const providerResult = await generate(task, controller.signal);
+      const providerResult = await generate(task, controller.signal, (status) => {
+        if (controller.signal.aborted || store.getTask(task.id)?.status === "cancelled") {
+          return;
+        }
+
+        if (status === "queued") {
+          store.markQueued(task.id);
+        } else {
+          store.markRunning(task.id);
+        }
+        notify(task.id);
+      });
       if (controller.signal.aborted || store.getTask(task.id)?.status === "cancelled") {
         return;
       }
@@ -113,7 +134,11 @@ export function createTaskRunner(store: TaskStore, options: TaskRunnerOptions): 
   }
 }
 
-async function defaultGenerate(task: GenerationTask): Promise<ProviderGenerationResult> {
+async function defaultGenerate(
+  task: GenerationTask,
+  _signal?: AbortSignal,
+  reportStatus?: (status: ProviderProgressStatus) => void
+): Promise<ProviderGenerationResult> {
   return generateWithProvider({
     provider: {
       format: task.provider,
@@ -125,7 +150,7 @@ async function defaultGenerate(task: GenerationTask): Promise<ProviderGeneration
     size: task.size,
     count: task.count,
     referenceImages: task.referenceImages
-  });
+  }, undefined, undefined, reportStatus);
 }
 
 async function defaultSaveImages(

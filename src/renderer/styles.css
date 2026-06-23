@@ -527,6 +527,44 @@ textarea:focus {
   background: #f8faf8;
 }
 
+.file-tile {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  min-height: 220px;
+  border: 1px solid #d6ddd7;
+  border-radius: 8px;
+  background: #f8faf8;
+  padding: 16px;
+  text-align: center;
+}
+
+.file-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid #cfd7d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0d8a6a;
+}
+
+.file-tile strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: #26302b;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-download {
+  width: 96px;
+  text-decoration: none;
+}
+
 .image-tile img {
   display: block;
   width: 100%;

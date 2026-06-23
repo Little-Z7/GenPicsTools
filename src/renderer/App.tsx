@@ -22,6 +22,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { isPreviewableImageOutput } from "../shared/outputFiles";
 import { createRegenerateTaskInput } from "../shared/regenerateTask";
 import { getSizeOptions, isPresetSize } from "../shared/sizeOptions";
 import type {
@@ -43,6 +44,11 @@ const providerDefaults: Record<ProviderFormat, Pick<QueueSettings["provider"], "
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     model: "gemini-2.5-flash-image",
     size: "1:1"
+  },
+  workflow: {
+    baseUrl: "https://www.runninghub.cn/openapi/v2",
+    model: "seethrough",
+    size: "workflow"
   }
 };
 
@@ -86,6 +92,12 @@ export function App() {
   const sizeOptions = settings ? getSizeOptions(settings.provider.format) : [];
   const selectedSizeOption =
     settings && isPresetSize(settings.provider.format, settings.size) ? settings.size : customSizeOptionValue;
+  const isWorkflowMode = settings?.provider.format === "workflow";
+  const canEnqueue =
+    !!settings &&
+    (isWorkflowMode
+      ? settings.provider.apiKey.trim().length > 0 && referenceImages.length > 0
+      : prompt.trim().length > 0);
 
   async function bootstrap() {
     try {
@@ -111,6 +123,7 @@ export function App() {
       return {
         ...current,
         size: defaults.size,
+        count: format === "workflow" ? 1 : current.count,
         provider: {
           ...current.provider,
           format,
@@ -147,7 +160,10 @@ export function App() {
     try {
       setIsImporting(true);
       const imported = await window.aiImageTool.chooseReferenceImages();
-      setReferenceImages((current) => dedupeReferences([...current, ...imported]));
+      setReferenceImages((current) => {
+        const nextImages = dedupeReferences([...current, ...imported]);
+        return settings?.provider.format === "workflow" ? nextImages.slice(0, 1) : nextImages;
+      });
     } catch (importError) {
       setError(toErrorMessage(importError));
     } finally {
@@ -166,7 +182,10 @@ export function App() {
     try {
       setIsImporting(true);
       const imported = await window.aiImageTool.importReferenceImages(filePaths);
-      setReferenceImages((current) => dedupeReferences([...current, ...imported]));
+      setReferenceImages((current) => {
+        const nextImages = dedupeReferences([...current, ...imported]);
+        return settings?.provider.format === "workflow" ? nextImages.slice(0, 1) : nextImages;
+      });
     } catch (importError) {
       setError(toErrorMessage(importError));
     } finally {
@@ -184,16 +203,19 @@ export function App() {
       setError(undefined);
       setIsEnqueueing(true);
       await window.aiImageTool.saveSettings(settings);
+      if (settings.provider.format === "workflow" && referenceImages.length === 0) {
+        throw new Error("SeeThrough分层需要上传 1 张图片。");
+      }
       const task = await window.aiImageTool.enqueueTask({
         provider: settings.provider.format,
         baseUrl: settings.provider.baseUrl,
         apiKey: settings.provider.apiKey,
         model: settings.provider.model,
-        prompt,
+        prompt: prompt.trim() || (settings.provider.format === "workflow" ? "SeeThrough分层" : prompt),
         size: settings.size,
         count: settings.count,
         outputDirectory: settings.outputDirectory,
-        referenceImages
+        referenceImages: settings.provider.format === "workflow" ? referenceImages.slice(0, 1) : referenceImages
       });
       setTasks(await window.aiImageTool.listTasks());
       setSelectedTaskId(task.id);
@@ -266,25 +288,28 @@ export function App() {
 
           <label>
             接口格式
-            <select value={settings.provider.format} onChange={(event) => changeProvider(event.target.value as ProviderFormat)}>
-              <option value="openai">OpenAI Compatible</option>
-              <option value="gemini">Gemini</option>
-            </select>
-          </label>
+	            <select value={settings.provider.format} onChange={(event) => changeProvider(event.target.value as ProviderFormat)}>
+	              <option value="openai">OpenAI Compatible</option>
+	              <option value="gemini">Gemini</option>
+	              <option value="workflow">Workflow</option>
+	            </select>
+	          </label>
 
-          <label>
-            Base URL
-            <input
-              value={settings.provider.baseUrl}
-              onChange={(event) =>
-                updateSettings((current) => ({
-                  ...current,
-                  provider: { ...current.provider, baseUrl: event.target.value }
-                }))
-              }
-              spellCheck={false}
-            />
-          </label>
+	          {!isWorkflowMode ? (
+	            <label>
+	              Base URL
+	              <input
+	                value={settings.provider.baseUrl}
+	                onChange={(event) =>
+	                  updateSettings((current) => ({
+	                    ...current,
+	                    provider: { ...current.provider, baseUrl: event.target.value }
+	                  }))
+	                }
+	                spellCheck={false}
+	              />
+	            </label>
+	          ) : null}
 
           <label>
             API Key
@@ -304,64 +329,75 @@ export function App() {
             </div>
           </label>
 
-          <label>
-            Model
-            <input
-              value={settings.provider.model}
-              onChange={(event) =>
-                updateSettings((current) => ({
-                  ...current,
-                  provider: { ...current.provider, model: event.target.value }
-                }))
-              }
-              spellCheck={false}
-            />
-          </label>
+	          {!isWorkflowMode ? (
+	            <label>
+	              Model
+	              <input
+	                value={settings.provider.model}
+	                onChange={(event) =>
+	                  updateSettings((current) => ({
+	                    ...current,
+	                    provider: { ...current.provider, model: event.target.value }
+	                  }))
+	                }
+	                spellCheck={false}
+	              />
+	            </label>
+	          ) : (
+	            <label>
+	              工作流应用
+	              <input value="SeeThrough分层" readOnly />
+	            </label>
+	          )}
         </section>
 
         <section className="control-section">
           <SectionTitle icon={<ImagePlus size={16} />} text="任务参数" />
 
-          <label>
-            尺寸 / 比例
-            <div className="size-picker">
-              <select
-                value={selectedSizeOption}
-                onChange={(event) => {
-                  if (event.target.value !== customSizeOptionValue) {
-                    updateSettings((current) => ({ ...current, size: event.target.value }));
-                  }
-                }}
-              >
-                {sizeOptions.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-                <option value={customSizeOptionValue}>自定义</option>
-              </select>
-              <input
-                value={settings.size}
-                onChange={(event) => updateSettings((current) => ({ ...current, size: event.target.value.trim() }))}
-                placeholder={settings.provider.format === "gemini" ? "例如 7:5" : "例如 640x960"}
-                spellCheck={false}
-              />
-            </div>
-          </label>
+	          {!isWorkflowMode ? (
+	            <label>
+	              尺寸 / 比例
+	              <div className="size-picker">
+	                <select
+	                  value={selectedSizeOption}
+	                  onChange={(event) => {
+	                    if (event.target.value !== customSizeOptionValue) {
+	                      updateSettings((current) => ({ ...current, size: event.target.value }));
+	                    }
+	                  }}
+	                >
+	                  {sizeOptions.map((size) => (
+	                    <option key={size} value={size}>
+	                      {size}
+	                    </option>
+	                  ))}
+	                  <option value={customSizeOptionValue}>自定义</option>
+	                </select>
+	                <input
+	                  value={settings.size}
+	                  onChange={(event) => updateSettings((current) => ({ ...current, size: event.target.value.trim() }))}
+	                  placeholder={settings.provider.format === "gemini" ? "例如 7:5" : "例如 640x960"}
+	                  spellCheck={false}
+	                />
+	              </div>
+	            </label>
+	          ) : null}
 
-          <div className="two-columns">
-            <label>
-              数量
-              <input
-                type="number"
-                min={1}
-                max={4}
-                value={settings.count}
-                onChange={(event) => updateSettings((current) => ({ ...current, count: Number(event.target.value) }))}
-              />
-            </label>
-            <label>
-              并发
+	          <div className="two-columns">
+	            {!isWorkflowMode ? (
+	              <label>
+	                数量
+	                <input
+	                  type="number"
+	                  min={1}
+	                  max={4}
+	                  value={settings.count}
+	                  onChange={(event) => updateSettings((current) => ({ ...current, count: Number(event.target.value) }))}
+	                />
+	              </label>
+	            ) : null}
+	            <label>
+	              并发
               <input
                 type="number"
                 min={1}
@@ -410,11 +446,11 @@ export function App() {
             </div>
           </div>
 
-          <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="输入提示词。可拖拽参考图到下方区域后一起提交到任务队列。"
-          />
+	          <textarea
+	            value={prompt}
+	            onChange={(event) => setPrompt(event.target.value)}
+	            placeholder={isWorkflowMode ? "可选：给这次 SeeThrough 分层任务写一个备注。" : "输入提示词。可拖拽参考图到下方区域后一起提交到任务队列。"}
+	          />
 
           <div
             className={`dropzone ${isDragActive ? "is-active" : ""}`}
@@ -430,8 +466,8 @@ export function App() {
           >
             <Upload size={22} />
             <div>
-              <strong>参考图</strong>
-              <span>拖拽 PNG / JPG / WebP 到这里，或点击选择文件</span>
+	              <strong>{isWorkflowMode ? "输入图片" : "参考图"}</strong>
+	              <span>{isWorkflowMode ? "SeeThrough分层需要 1 张 PNG / JPG / WebP 图片" : "拖拽 PNG / JPG / WebP 到这里，或点击选择文件"}</span>
             </div>
             <button type="button" className="secondary-button compact" onClick={chooseReferenceImages} disabled={isImporting}>
               {isImporting ? <Loader2 className="spin" size={15} /> : <ImagePlus size={15} />}
@@ -458,11 +494,19 @@ export function App() {
           )}
 
           <div className="action-row">
-            <button type="button" className="primary-button" onClick={enqueueTask} disabled={!prompt.trim() || isEnqueueing}>
-              {isEnqueueing ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-              加入队列
-            </button>
-            <span>{referenceImages.length > 0 ? `${referenceImages.length} 张参考图` : "纯文本生图"}</span>
+            <button type="button" className="primary-button" onClick={enqueueTask} disabled={!canEnqueue || isEnqueueing}>
+	              {isEnqueueing ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
+	              加入队列
+	            </button>
+	            <span>
+	              {isWorkflowMode
+	                ? referenceImages.length > 0
+	                  ? "SeeThrough分层输入已就绪"
+	                  : "需要上传 1 张图片"
+	                : referenceImages.length > 0
+	                  ? `${referenceImages.length} 张参考图`
+	                  : "纯文本生图"}
+	            </span>
           </div>
         </section>
 
@@ -517,11 +561,11 @@ export function App() {
             >
               <StatusIcon status={task.status} />
               <div>
-                <strong>{task.prompt}</strong>
-                <span>
-                  {statusText[task.status]} / {task.provider} / {task.model}
-                </span>
-                <time>{formatTime(task.updatedAt)}</time>
+	                <strong>{task.prompt}</strong>
+	                <span>
+	                  {statusText[task.status]} / {formatProviderName(task.provider)} / {formatModelName(task)}
+	                </span>
+	                <time>{formatTime(task.updatedAt)}</time>
               </div>
               <div className="task-actions">
                 {task.status === "failed" || task.status === "cancelled" ? (
@@ -592,26 +636,38 @@ function TaskDetail({ task, onTasksRefresh }: { task: GenerationTask; onTasksRef
             <ImagePlus size={32} />
             <span>暂无输出</span>
           </div>
-        ) : (
-          <div className="image-grid">
-            {task.outputs.map((image) => (
-              <figure className="image-tile" key={image.filePath}>
-                <img src={image.fileUrl} alt={image.revisedPrompt ?? task.prompt} />
-                <figcaption>
-                  <span title={image.filePath}>{basename(image.filePath)}</span>
-                  <button
-                    type="button"
-                    className="icon-button small"
-                    onClick={() => setEditingImage(image)}
-                    title="标注处理"
-                  >
-                    <Brush size={14} />
-                  </button>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        )}
+	        ) : (
+	          <div className="image-grid">
+	            {task.outputs.map((image) =>
+	              isPreviewableImageOutput(image.filePath) ? (
+	                <figure className="image-tile" key={image.filePath}>
+	                  <img src={image.fileUrl} alt={task.prompt} />
+	                  <figcaption>
+	                    <span title={image.filePath}>{basename(image.filePath)}</span>
+	                    <button
+	                      type="button"
+	                      className="icon-button small"
+	                      onClick={() => setEditingImage(image)}
+	                      title="标注处理"
+	                    >
+	                      <Brush size={14} />
+	                    </button>
+	                  </figcaption>
+	                </figure>
+	              ) : (
+	                <div className="file-tile" key={image.filePath}>
+	                  <div className="file-icon">
+	                    <FolderOpen size={26} />
+	                  </div>
+	                  <strong title={image.filePath}>{basename(image.filePath)}</strong>
+	                  <a className="secondary-button compact file-download" href={image.fileUrl} download>
+	                    下载
+	                  </a>
+	                </div>
+	              )
+	            )}
+	          </div>
+	        )}
       </div>
 
       {editingImage ? (
@@ -1037,6 +1093,22 @@ function dedupeReferences(images: ReferenceImageRecord[]): ReferenceImageRecord[
 
 function basename(filePath: string): string {
   return filePath.split(/[\\/]/).at(-1) ?? filePath;
+}
+
+function formatProviderName(provider: ProviderFormat): string {
+  if (provider === "workflow") {
+    return "Workflow";
+  }
+
+  return provider;
+}
+
+function formatModelName(task: GenerationTask): string {
+  if (task.provider === "workflow" && task.model === "seethrough") {
+    return "SeeThrough分层";
+  }
+
+  return task.model;
 }
 
 function formatTime(value: string): string {

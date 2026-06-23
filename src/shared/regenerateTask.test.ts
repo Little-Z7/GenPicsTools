@@ -58,4 +58,45 @@ describe("createRegenerateTaskInput", () => {
     expect(input).not.toHaveProperty("outputs");
     expect(input.referenceImages).not.toBe(task.referenceImages);
   });
+
+  it("preserves workflow app settings for regeneration", () => {
+    const task: GenerationTask = {
+      id: "task-see-through",
+      status: "succeeded",
+      provider: "workflow",
+      baseUrl: "https://www.runninghub.cn/openapi/v2",
+      apiKey: "rh-key",
+      model: "seethrough",
+      prompt: "SeeThrough分层",
+      size: "workflow",
+      count: 1,
+      outputDirectory: "C:/outputs",
+      referenceImages: [
+        {
+          id: "ref-1",
+          filePath: "C:/refs/source.png",
+          fileUrl: "file:///C:/refs/source.png",
+          originalName: "source.png",
+          mimeType: "image/png",
+          sizeBytes: 128
+        }
+      ],
+      outputs: [],
+      retryCount: 0,
+      createdAt: "2026-06-23T00:00:00.000Z",
+      updatedAt: "2026-06-23T00:00:00.000Z"
+    };
+
+    expect(createRegenerateTaskInput(task)).toMatchObject({
+      provider: "workflow",
+      baseUrl: "https://www.runninghub.cn/openapi/v2",
+      apiKey: "rh-key",
+      model: "seethrough",
+      prompt: "SeeThrough分层",
+      size: "workflow",
+      count: 1,
+      outputDirectory: "C:/outputs",
+      referenceImages: [{ filePath: "C:/refs/source.png" }]
+    });
+  });
 });

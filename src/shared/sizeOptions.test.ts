@@ -20,6 +20,11 @@ describe("size options", () => {
     expect(getSizeOptions("gemini")).toEqual(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"]);
   });
 
+  it("does not expose size presets for workflow providers", () => {
+    expect(getSizeOptions("workflow")).toEqual([]);
+    expect(isPresetSize("workflow", "1024x1024")).toBe(false);
+  });
+
   it("identifies custom values outside provider presets", () => {
     expect(isPresetSize("openai", "1024x1024")).toBe(true);
     expect(isPresetSize("openai", "640x960")).toBe(false);

@@ -267,4 +267,150 @@ describe("provider adapters", () => {
     ]);
     expect(body.generationConfig.responseFormat.image.aspectRatio).toBe("16:9");
   });
+
+  it("runs the fixed SeeThrough workflow through RunningHub upload, submit, and query", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (String(input).endsWith("/media/upload/binary")) {
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer rh-key");
+        expect(init?.body).toBeInstanceOf(FormData);
+        expect((init?.body as FormData).get("file")).toBeInstanceOf(Blob);
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            message: "success",
+            data: {
+              type: "image",
+              download_url: "https://cdn.runninghub.test/input.png",
+              fileName: "openapi/uploaded-source.png",
+              size: "128"
+            }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (String(input).endsWith("/run/ai-app/2040054307541749762")) {
+        return new Response(
+          JSON.stringify({
+            taskId: "rh-task-1",
+            status: "QUEUED",
+            errorCode: "",
+            errorMessage: "",
+            results: null
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (String(input).endsWith("/query")) {
+        return new Response(
+          JSON.stringify({
+            taskId: "rh-task-1",
+            status: "SUCCESS",
+            errorCode: "",
+            errorMessage: "",
+            results: [
+              {
+                url: "https://cdn.runninghub.test/output/see-through.png",
+                nodeId: "2",
+                outputType: "png",
+                text: null
+              },
+              {
+                url: "https://cdn.runninghub.test/output/layers.zip",
+                nodeId: "20",
+                outputType: "zip",
+                text: null
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected request ${input}`);
+    };
+    const statuses: string[] = [];
+
+    const result = await generateWithProvider(
+      createRequest({
+        provider: {
+          format: "workflow",
+          baseUrl: "https://ignored.example.test",
+          apiKey: "rh-key",
+          model: "seethrough"
+        },
+        prompt: "SeeThrough分层",
+        size: "workflow",
+        referenceImages: [
+          {
+            id: "ref",
+            filePath: "C:/tmp/source.png",
+            fileUrl: "file:///C:/tmp/source.png",
+            originalName: "source.png",
+            mimeType: "image/png",
+            sizeBytes: 128
+          }
+        ]
+      }),
+      fetchImpl,
+      async () => Buffer.from("source-bytes"),
+      (status) => statuses.push(status)
+    );
+
+    expect(calls.map((call) => call.input)).toEqual([
+      "https://www.runninghub.cn/openapi/v2/media/upload/binary",
+      "https://www.runninghub.cn/openapi/v2/run/ai-app/2040054307541749762",
+      "https://www.runninghub.cn/openapi/v2/query"
+    ]);
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({
+      nodeInfoList: [
+        {
+          nodeId: "1",
+          fieldName: "image",
+          fieldValue: "openapi/uploaded-source.png",
+          description: "上传图片image"
+        }
+      ],
+      instanceType: "default",
+      usePersonalQueue: "false"
+    });
+    expect(JSON.parse(String(calls[2].init?.body))).toEqual({ taskId: "rh-task-1" });
+    expect(result.images).toEqual([
+      {
+        source: "url",
+        url: "https://cdn.runninghub.test/output/see-through.png",
+        mimeType: "image/png",
+        extension: "png"
+      },
+      {
+        source: "url",
+        url: "https://cdn.runninghub.test/output/layers.zip",
+        mimeType: "application/zip",
+        extension: "zip"
+      }
+    ]);
+    expect(statuses).toEqual(["queued"]);
+  });
+
+  it("rejects SeeThrough workflow tasks without a reference image", async () => {
+    await expect(
+      generateWithProvider(
+        createRequest({
+        provider: {
+            format: "workflow",
+            baseUrl: "https://ignored.example.test",
+            apiKey: "rh-key",
+            model: "seethrough"
+          },
+          prompt: "SeeThrough分层",
+          size: "workflow",
+          referenceImages: []
+        })
+      )
+    ).rejects.toThrow("SeeThrough分层 requires one uploaded image.");
+  });
 });

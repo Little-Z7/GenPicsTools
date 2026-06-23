@@ -76,6 +76,34 @@ describe("task runner", () => {
     });
   });
 
+  it("reports provider queued progress as local queued status while task remains active", async () => {
+    const dir = await makeTempDir();
+    const db = openAppDatabase(join(dir, "app.sqlite"));
+    openDbs.push(db);
+    const store = createTaskStore(db);
+    const task = store.createTask(createTaskInput("remote-queued"));
+    const statuses: string[] = [];
+    const runner = createTaskRunner(store, {
+      concurrency: 1,
+      generate: async (_task, _signal, reportStatus) => {
+        reportStatus?.("queued");
+        statuses.push(store.getTask(task.id)?.status ?? "missing");
+        return { images: [createNormalizedImage()] };
+      },
+      saveImages: async (_images, _outputDirectory, currentTask) => [createSavedImage(currentTask.id)],
+      onTaskChange: (changedTask) => {
+        if (changedTask.id === task.id) {
+          statuses.push(changedTask.status);
+        }
+      }
+    });
+
+    await runner.runUntilIdle();
+
+    expect(statuses).toContain("queued");
+    expect(store.getTask(task.id)?.status).toBe("succeeded");
+  });
+
   it("cancels queued tasks before execution and retry resets them", async () => {
     const dir = await makeTempDir();
     const db = openAppDatabase(join(dir, "app.sqlite"));

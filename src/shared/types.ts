@@ -1,4 +1,4 @@
-export type ProviderFormat = "openai" | "gemini";
+export type ProviderFormat = "openai" | "gemini" | "workflow";
 
 export interface ProviderSettings {
   format: ProviderFormat;
@@ -23,6 +23,8 @@ export interface GenerationRequest {
   count: number;
   referenceImages?: ReferenceImageRecord[];
 }
+
+export type ProviderProgressStatus = "queued" | "running";
 
 export type NormalizedGeneratedImage =
   | {

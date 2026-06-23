@@ -11,7 +11,7 @@ import type { AppDatabase } from "./db";
 interface TaskRow {
   id: string;
   status: TaskStatus;
-  provider: "openai" | "gemini";
+  provider: "openai" | "gemini" | "workflow";
   base_url: string;
   api_key: string;
   model: string;
@@ -51,6 +51,7 @@ export interface TaskStore {
   listTasks: () => GenerationTask[];
   getTask: (taskId: string) => GenerationTask | undefined;
   listQueuedTasks: (limit: number) => GenerationTask[];
+  markQueued: (taskId: string, now?: string) => void;
   markRunning: (taskId: string, now?: string) => void;
   markSucceeded: (taskId: string, now?: string) => void;
   markFailed: (taskId: string, error: string, now?: string) => void;
@@ -139,6 +140,10 @@ export function createTaskStore(db: AppDatabase): TaskStore {
         .prepare("SELECT * FROM tasks WHERE status = 'queued' ORDER BY datetime(created_at) ASC LIMIT ?")
         .all(limit) as unknown as TaskRow[];
       return rows.map((row) => hydrateTask(db, row));
+    },
+
+    markQueued(taskId: string, now = new Date().toISOString()): void {
+      db.prepare("UPDATE tasks SET status = 'queued', updated_at = ?, error = NULL WHERE id = ?").run(now, taskId);
     },
 
     markRunning(taskId: string, now = new Date().toISOString()): void {
