@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
 import { join } from "node:path";
 import type { CreateTaskInput, QueueSettings } from "../shared/types";
+import { defaultWorkflowAppId, getWorkflowApp } from "../shared/workflowApps";
 import { saveAnnotatedImage } from "./annotations";
 import { openAppDatabase } from "./db";
 import { logError } from "./logging";
@@ -170,12 +171,13 @@ function loadQueueSettingsSync(store: ReturnType<typeof createTaskStore>, userDa
 
 function normalizeSettings(settings: QueueSettings, userDataPath: string): QueueSettings {
   if (settings.provider.format === "workflow") {
+    const workflowAppId = getWorkflowApp(settings.provider.model)?.id ?? defaultWorkflowAppId;
     return {
       provider: {
         format: "workflow",
         baseUrl: "https://www.runninghub.cn/openapi/v2",
         apiKey: settings.provider.apiKey || "",
-        model: "seethrough"
+        model: workflowAppId
       },
       size: "workflow",
       count: 1,

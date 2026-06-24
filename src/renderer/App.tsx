@@ -33,6 +33,7 @@ import type {
   TaskOutputRecord,
   TaskStatus
 } from "../shared/types";
+import { defaultWorkflowAppId, getWorkflowApp, getWorkflowAppOrDefault, workflowApps } from "../shared/workflowApps";
 
 const providerDefaults: Record<ProviderFormat, Pick<QueueSettings["provider"], "baseUrl" | "model"> & { size: string }> = {
   openai: {
@@ -47,7 +48,7 @@ const providerDefaults: Record<ProviderFormat, Pick<QueueSettings["provider"], "
   },
   workflow: {
     baseUrl: "https://www.runninghub.cn/openapi/v2",
-    model: "seethrough",
+    model: defaultWorkflowAppId,
     size: "workflow"
   }
 };
@@ -93,6 +94,7 @@ export function App() {
   const selectedSizeOption =
     settings && isPresetSize(settings.provider.format, settings.size) ? settings.size : customSizeOptionValue;
   const isWorkflowMode = settings?.provider.format === "workflow";
+  const selectedWorkflowApp = settings ? getWorkflowAppOrDefault(settings.provider.model) : workflowApps[0];
   const canEnqueue =
     !!settings &&
     (isWorkflowMode
@@ -132,6 +134,16 @@ export function App() {
         }
       };
     });
+  }
+
+  function changeWorkflowApp(model: string) {
+    updateSettings((current) => ({
+      ...current,
+      provider: {
+        ...current.provider,
+        model
+      }
+    }));
   }
 
   async function saveSettings() {
@@ -203,15 +215,16 @@ export function App() {
       setError(undefined);
       setIsEnqueueing(true);
       await window.aiImageTool.saveSettings(settings);
+      const workflowApp = settings.provider.format === "workflow" ? getWorkflowAppOrDefault(settings.provider.model) : undefined;
       if (settings.provider.format === "workflow" && referenceImages.length === 0) {
-        throw new Error("SeeThrough分层需要上传 1 张图片。");
+        throw new Error(`${workflowApp?.label ?? "Workflow"}需要上传 1 张图片。`);
       }
       const task = await window.aiImageTool.enqueueTask({
         provider: settings.provider.format,
         baseUrl: settings.provider.baseUrl,
         apiKey: settings.provider.apiKey,
         model: settings.provider.model,
-        prompt: prompt.trim() || (settings.provider.format === "workflow" ? "SeeThrough分层" : prompt),
+        prompt: prompt.trim() || (workflowApp ? workflowApp.defaultPrompt : prompt),
         size: settings.size,
         count: settings.count,
         outputDirectory: settings.outputDirectory,
@@ -343,12 +356,18 @@ export function App() {
 	                spellCheck={false}
 	              />
 	            </label>
-	          ) : (
-	            <label>
-	              工作流应用
-	              <input value="SeeThrough分层" readOnly />
-	            </label>
-	          )}
+		          ) : (
+		            <label>
+		              工作流应用
+		              <select value={settings.provider.model} onChange={(event) => changeWorkflowApp(event.target.value)}>
+		                {workflowApps.map((app) => (
+		                  <option key={app.id} value={app.id}>
+		                    {app.label}
+		                  </option>
+		                ))}
+		              </select>
+		            </label>
+		          )}
         </section>
 
         <section className="control-section">
@@ -446,11 +465,11 @@ export function App() {
             </div>
           </div>
 
-	          <textarea
-	            value={prompt}
-	            onChange={(event) => setPrompt(event.target.value)}
-	            placeholder={isWorkflowMode ? "可选：给这次 SeeThrough 分层任务写一个备注。" : "输入提示词。可拖拽参考图到下方区域后一起提交到任务队列。"}
-	          />
+		          <textarea
+		            value={prompt}
+		            onChange={(event) => setPrompt(event.target.value)}
+		            placeholder={isWorkflowMode ? `可选：给这次 ${selectedWorkflowApp.label} 任务写一个备注。` : "输入提示词。可拖拽参考图到下方区域后一起提交到任务队列。"}
+		          />
 
           <div
             className={`dropzone ${isDragActive ? "is-active" : ""}`}
@@ -464,11 +483,11 @@ export function App() {
               void importDroppedFiles(event.dataTransfer.files);
             }}
           >
-            <Upload size={22} />
-            <div>
-	              <strong>{isWorkflowMode ? "输入图片" : "参考图"}</strong>
-	              <span>{isWorkflowMode ? "SeeThrough分层需要 1 张 PNG / JPG / WebP 图片" : "拖拽 PNG / JPG / WebP 到这里，或点击选择文件"}</span>
-            </div>
+		            <Upload size={22} />
+		            <div>
+		              <strong>{isWorkflowMode ? "输入图片" : "参考图"}</strong>
+		              <span>{isWorkflowMode ? `${selectedWorkflowApp.label} 需要 1 张 PNG / JPG / WebP 图片` : "拖拽 PNG / JPG / WebP 到这里，或点击选择文件"}</span>
+		            </div>
             <button type="button" className="secondary-button compact" onClick={chooseReferenceImages} disabled={isImporting}>
               {isImporting ? <Loader2 className="spin" size={15} /> : <ImagePlus size={15} />}
               选择
@@ -498,11 +517,11 @@ export function App() {
 	              {isEnqueueing ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
 	              加入队列
 	            </button>
-	            <span>
-	              {isWorkflowMode
-	                ? referenceImages.length > 0
-	                  ? "SeeThrough分层输入已就绪"
-	                  : "需要上传 1 张图片"
+		            <span>
+		              {isWorkflowMode
+		                ? referenceImages.length > 0
+		                  ? `${selectedWorkflowApp.label} 输入已就绪`
+		                  : "需要上传 1 张图片"
 	                : referenceImages.length > 0
 	                  ? `${referenceImages.length} 张参考图`
 	                  : "纯文本生图"}
@@ -1104,8 +1123,8 @@ function formatProviderName(provider: ProviderFormat): string {
 }
 
 function formatModelName(task: GenerationTask): string {
-  if (task.provider === "workflow" && task.model === "seethrough") {
-    return "SeeThrough分层";
+  if (task.provider === "workflow") {
+    return getWorkflowApp(task.model)?.label ?? task.model;
   }
 
   return task.model;

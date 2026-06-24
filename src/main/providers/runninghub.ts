@@ -6,11 +6,10 @@ import type {
   ProviderProgressStatus,
   ReferenceImageRecord
 } from "../../shared/types";
+import { getWorkflowApp } from "../../shared/workflowApps";
 import type { FetchLike, ReadFileLike } from "./openai";
 
 const runningHubBaseUrl = "https://www.runninghub.cn/openapi/v2";
-const seeThroughAppId = "2040054307541749762";
-const seeThroughTaskName = "SeeThrough分层";
 
 interface RunningHubUploadResponse {
   code?: number;
@@ -42,13 +41,18 @@ export async function generateSeeThroughWorkflow(
   readFileImpl: ReadFileLike = readFile,
   onStatus?: (status: ProviderProgressStatus) => void
 ): Promise<ProviderGenerationResult> {
+  const workflowApp = getWorkflowApp(request.provider.model);
+  if (!workflowApp) {
+    throw new Error(`Unsupported workflow app: ${request.provider.model}`);
+  }
+
   const referenceImage = request.referenceImages?.[0];
   if (!referenceImage) {
-    throw new Error(`${seeThroughTaskName} requires one uploaded image.`);
+    throw new Error(`${workflowApp.label} requires one uploaded image.`);
   }
 
   const fieldValue = await uploadImage(referenceImage, request.provider.apiKey, fetchImpl, readFileImpl);
-  const submitted = await submitSeeThroughTask(fieldValue, request.provider.apiKey, fetchImpl);
+  const submitted = await submitSeeThroughTask(fieldValue, request.provider.apiKey, workflowApp.appId, workflowApp.inputDescription, fetchImpl);
   emitProviderStatus(submitted.status, onStatus);
   const taskId = submitted.taskId;
   if (!taskId) {
@@ -89,8 +93,14 @@ async function uploadImage(
   return fieldValue;
 }
 
-async function submitSeeThroughTask(fieldValue: string, apiKey: string, fetchImpl: FetchLike): Promise<RunningHubTaskResponse> {
-  const response = await fetchImpl(`${runningHubBaseUrl}/run/ai-app/${seeThroughAppId}`, {
+async function submitSeeThroughTask(
+  fieldValue: string,
+  apiKey: string,
+  appId: string,
+  inputDescription: string,
+  fetchImpl: FetchLike
+): Promise<RunningHubTaskResponse> {
+  const response = await fetchImpl(`${runningHubBaseUrl}/run/ai-app/${appId}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -102,7 +112,7 @@ async function submitSeeThroughTask(fieldValue: string, apiKey: string, fetchImp
           nodeId: "1",
           fieldName: "image",
           fieldValue,
-          description: "上传图片image"
+          description: inputDescription
         }
       ],
       instanceType: "default",
